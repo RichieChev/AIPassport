@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Detection Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 20px auto;
+        }
+        video {
+            width: 100%;
+            background: #000;
+            border-radius: 8px;
+            transform: scaleX(-1);
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            margin: 10px 5px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+        }
+        .status.success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        .status.error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+        .status.warning {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .log-entry.info { color: #0066cc; }
+        .log-entry.success { color: #28a745; }
+        .log-entry.error { color: #dc3545; }
+        .log-entry.warn { color: #ffc107; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Face Detection Test</h1>
+        <p>This page tests the TensorFlow.js face detection model independently.</p>
+        
+        <div>
+            <button id="startBtn" onclick="startTest()">Start Camera & Detection</button>
+            <button id="stopBtn" onclick="stopTest()" disabled>Stop</button>
+        </div>
+        
+        <div id="status" class="status">
+            Status: Not started
+        </div>
+        
+        <div class="video-container">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div class="log" id="log">
+            <strong>Console Log:</strong>
+        </div>
+    </div>
+    
+    <script>
+        let video, canvas, ctx;
+        let stream = null;
+        let detector = null;
+        let detectionInterval = null;
+        let faceDetected = false;
+        
+        // Custom logging
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function updateStatus(message, type = '') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        async function startTest() {
+            try {
+                video = document.getElementById('video');
+                canvas = document.getElementById('canvas');
+                ctx = canvas.getContext('2d');
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                
+                log('=== Starting Face Detection Test ===', 'info');
+                updateStatus('Starting camera...', 'warning');
+                
+                // Step 1: Start camera
+                log('Step 1: Requesting camera access...', 'info');
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: 'user'
+                    },
+                    audio: false
+                });
+                
+                video.srcObject = stream;
+                await video.play();
+                log('✓ Camera started successfully', 'success');
+                
+                // Wait for video to have dimensions
+                await new Promise((resolve) => {
+                    const checkVideo = () => {
+                        if (video.videoWidth > 0 && video.videoHeight > 0) {
+                            log(`✓ Video dimensions: ${video.videoWidth}x${video.videoHeight}`, 'success');
+                            resolve();
+                        } else {
+                            setTimeout(checkVideo, 100);
+                        }
+                    };
+                    checkVideo();
+                });
+                
+                // Set canvas size
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Step 2: Load face detection model
+                log('Step 2: Loading TensorFlow.js face detection model...', 'info');
+                updateStatus('Loading AI model...', 'warning');
+                
+                const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+                const detectorConfig = {
+                    runtime: 'tfjs',
+                    refineLandmarks: false,
+                    maxFaces: 1,
+                };
+                
+                log(`Model config: ${JSON.stringify(detectorConfig)}`, 'info');
+                detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
+                log('✓ Face detection model loaded successfully', 'success');
+                
+                // Step 3: Start detection loop
+                log('Step 3: Starting face detection loop...', 'info');
+                updateStatus('Ready! Position your face in view...', 'success');
+                
+                let frameCount = 0;
+                let detectionCount = 0;
+                
+                detectionInterval = setInterval(async () => {
+                    frameCount++;
+                    
+                    try {
+                        // Detect faces
+                        const faces = await detector.estimateFaces(video, {
+                            flipHorizontal: false
+                        });
+                        
+                        // Clear canvas
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        
+                        if (faces.length > 0) {
+                            detectionCount++;
+                            
+                            if (!faceDetected) {
+                                log(`✓ FACE DETECTED! (Frame ${frameCount})`, 'success');
+                                faceDetected = true;
+                            }
+                            
+                            const face = faces[0];
+                            const box = face.box;
+                            
+                            // Draw bounding box
+                            ctx.strokeStyle = '#00ff00';
+                            ctx.lineWidth = 3;
+                            ctx.strokeRect(box.xMin, box.yMin, box.width, box.height);
+                            
+                            // Draw face info
+                            ctx.fillStyle = '#00ff00';
+                            ctx.font = '16px Arial';
+                            ctx.fillText(`Face: ${Math.round(box.width)}x${Math.round(box.height)}`, 
+                                box.xMin, box.yMin - 10);
+                            
+                            // Draw landmarks
+                            ctx.fillStyle = '#ff0000';
+                            face.keypoints.forEach(point => {
+                                ctx.beginPath();
+                                ctx.arc(point.x, point.y, 1, 0, 2 * Math.PI);
+                                ctx.fill();
+                            });
+                            
+                            updateStatus(`✓ Face detected! (${detectionCount}/${frameCount} frames)`, 'success');
+                        } else {
+                            if (faceDetected) {
+                                log(`✗ Face lost (Frame ${frameCount})`, 'warn');
+                                faceDetected = false;
+                            }
+                            
+                            if (frameCount % 30 === 0) {
+                                log(`No face detected (Frame ${frameCount})`, 'warn');
+                            }
+                            
+                            updateStatus(`Searching for face... (${detectionCount}/${frameCount} frames)`, 'warning');
+                        }
+                    } catch (error) {
+                        log(`✗ Detection error: ${error.message}`, 'error');
+                        console.error(error);
+                    }
+                }, 100); // Run every 100ms
+                
+            } catch (error) {
+                log(`✗ ERROR: ${error.message}`, 'error');
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            }
+        }
+        
+        function stopTest() {
+            log('=== Stopping Test ===', 'info');
+            
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+                detectionInterval = null;
+            }
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            if (video) {
+                video.srcObject = null;
+            }
+            
+            if (ctx) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            updateStatus('Stopped', '');
+            log('✓ Test stopped', 'info');
+        }
+    </script>
+</body>
+</html>

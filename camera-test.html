@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        video {
+            width: 100%;
+            max-width: 640px;
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            margin: 10px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .info {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            text-align: left;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Camera Permission Test</h1>
+    <p>This simple test will help verify if your browser can access the camera.</p>
+    
+    <button onclick="startCamera()">Start Camera</button>
+    <button onclick="stopCamera()">Stop Camera</button>
+    
+    <div class="info" id="info">
+        <p>Status: <span id="status">Not started</span></p>
+        <p>Available cameras: <span id="cameras">Unknown</span></p>
+    </div>
+    
+    <video id="video" autoplay playsinline muted></video>
+    
+    <script>
+        let stream = null;
+        const video = document.getElementById('video');
+        const statusEl = document.getElementById('status');
+        const camerasEl = document.getElementById('cameras');
+        
+        async function listCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                
+                if (videoDevices.length === 0) {
+                    camerasEl.innerHTML = '<span class="error">No cameras found</span>';
+                    return false;
+                } else {
+                    camerasEl.innerHTML = `<span class="success">${videoDevices.length} camera(s) found</span>`;
+                    videoDevices.forEach((device, i) => {
+                        camerasEl.innerHTML += `<br>Camera ${i + 1}: ${device.label || 'Unknown'}`;
+                    });
+                    return true;
+                }
+            } catch (err) {
+                camerasEl.innerHTML = `<span class="error">Error: ${err.message}</span>`;
+                return false;
+            }
+        }
+        
+        async function startCamera() {
+            try {
+                statusEl.textContent = 'Requesting camera access...';
+                statusEl.className = '';
+                
+                // First, list cameras
+                const hasCameras = await listCameras();
+                if (!hasCameras) {
+                    statusEl.innerHTML = '<span class="error">No cameras available. Check System Preferences → Privacy & Security → Camera</span>';
+                    return;
+                }
+                
+                // Request camera access
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+                
+                video.srcObject = stream;
+                await video.play();
+                
+                statusEl.innerHTML = '<span class="success">Camera is working! ✓</span>';
+                
+                // List cameras again to show labels
+                await listCameras();
+                
+            } catch (err) {
+                statusEl.innerHTML = `<span class="error">Error: ${err.name} - ${err.message}</span>`;
+                
+                if (err.name === 'NotFoundError') {
+                    statusEl.innerHTML += '<br><br>No camera detected. Please check:<br>1. Camera is connected<br>2. System Preferences → Privacy & Security → Camera<br>3. Your browser is allowed to use the camera';
+                } else if (err.name === 'NotAllowedError') {
+                    statusEl.innerHTML += '<br><br>Camera permission denied. Click the camera icon in the address bar and allow access.';
+                } else if (err.name === 'NotReadableError') {
+                    statusEl.innerHTML += '<br><br>Camera is in use by another application. Close other apps using the camera.';
+                }
+            }
+        }
+        
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                stream = null;
+                statusEl.innerHTML = '<span>Camera stopped</span>';
+            }
+        }
+        
+        // List cameras on page load
+        listCameras();
+    </script>
+</body>
+</html>
