@@ -172,7 +172,7 @@ async function replaceBackgroundSimple(
   canvas: HTMLCanvasElement,
   faceBox: FaceBoundingBox
 ): Promise<HTMLCanvasElement> {
-  const _ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d')!;
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
 
